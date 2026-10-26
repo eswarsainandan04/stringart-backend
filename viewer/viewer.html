@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Weaving Instructions PDF Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      background: #18181B;
+      color: #F4F4F5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+    #toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      width: 100%;
+      background: rgba(24, 24, 27, 0.95);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #27272A;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+    .btn {
+      background: #27272A;
+      border: 1px solid #3F3F46;
+      color: #FAFAFA;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      min-width: 82px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:active {
+      background: #3F3F46;
+      border-color: #71717A;
+    }
+    .btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    #page-info {
+      font-size: 14px;
+      font-weight: 600;
+      color: #E4E4E7;
+      white-space: nowrap;
+      text-align: center;
+      flex: 1;
+    }
+    #viewer-container {
+      width: 100%;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 14px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .pdf-canvas-wrapper {
+      position: relative;
+      background: #FFFFFF;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      border-radius: 4px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    #loading-container {
+      padding: 50px 20px;
+      text-align: center;
+      color: #A1A1AA;
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(255, 255, 255, 0.15);
+      border-top-color: #F59E0B;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    #error-msg {
+      color: #EF4444;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-top: 20px;
+      display: none;
+    }
+  </style>
+  <script src="pdf.min.js"></script>
+</head>
+<body>
+  <div id="toolbar">
+    <button class="btn" id="prev-btn" onclick="changePage(-1)" disabled>&lt; Prev</button>
+    <span id="page-info">page <span id="current-page">1</span> of <span id="total-pages">...</span></span>
+    <button class="btn" id="next-btn" onclick="changePage(1)" disabled>Next &gt;</button>
+  </div>
+
+  <!-- Document Viewport -->
+  <div id="viewer-container">
+    <div id="loading-container">
+      <div class="spinner"></div>
+      <span>Rendering instructions...</span>
+    </div>
+
+    <div id="error-msg"></div>
+
+    <div class="pdf-canvas-wrapper" id="canvas-wrapper" style="display:none;">
+      <canvas id="pdf-canvas"></canvas>
+    </div>
+  </div>
+
+  <script>
+    // Point PDF.js worker to locally hosted worker script
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
+    }
+
+    let pdfDoc = null;
+    let pageNum = 1;
+    let pageRendering = false;
+    let pageNumPending = null;
+
+    const canvas = document.getElementById('pdf-canvas');
+    const ctx = canvas.getContext('2d');
+    const wrapper = document.getElementById('canvas-wrapper');
+    const loading = document.getElementById('loading-container');
+    const pageInfo = document.getElementById('page-info');
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const errorMsg = document.getElementById('error-msg');
+
+    // Extract PDF URL from query parameters (?file=...)
+    const params = new URLSearchParams(window.location.search);
+    const pdfUrl = params.get('file');
+
+    function renderPage(num) {
+      pageRendering = true;
+      pdfDoc.getPage(num).then(function(page) {
+        const dpr = window.devicePixelRatio || 1;
+        // Fit width comfortably to viewport width
+        const containerWidth = Math.max(window.innerWidth - 28, 320);
+        const unscaledViewport = page.getViewport({ scale: 1.0 });
+        const autoFitScale = (containerWidth / unscaledViewport.width);
+
+        const viewport = page.getViewport({ scale: autoFitScale });
+
+        // Crisp high-DPI rendering for crystal clear text on mobile screens
+        canvas.width = Math.floor(viewport.width * dpr);
+        canvas.height = Math.floor(viewport.height * dpr);
+        canvas.style.width = Math.floor(viewport.width) + 'px';
+        canvas.style.height = Math.floor(viewport.height) + 'px';
+
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport,
+        };
+
+        const renderTask = page.render(renderContext);
+
+        renderTask.promise.then(function() {
+          pageRendering = false;
+          loading.style.display = 'none';
+          wrapper.style.display = 'block';
+
+          if (pageNumPending !== null) {
+            renderPage(pageNumPending);
+            pageNumPending = null;
+          }
+        }).catch(function(err) {
+          pageRendering = false;
+          showError('Page render failed: ' + err.message);
+        });
+      }).catch(function(err) {
+        pageRendering = false;
+        showError('Could not load page ' + num + ': ' + err.message);
+      });
+
+      updatePageIndicator(num, pdfDoc ? pdfDoc.numPages : null);
+      prevBtn.disabled = (num <= 1);
+      nextBtn.disabled = (num >= (pdfDoc ? pdfDoc.numPages : 1));
+    }
+
+    function updatePageIndicator(cur, total) {
+      const curEl = document.getElementById('current-page');
+      const totEl = document.getElementById('total-pages');
+      if (curEl) curEl.textContent = cur;
+      if (totEl && total) totEl.textContent = total;
+    }
+
+    function queueRenderPage(num) {
+      if (pageRendering) {
+        pageNumPending = num;
+      } else {
+        renderPage(num);
+      }
+    }
+
+    function changePage(delta) {
+      if (!pdfDoc) return;
+      const target = pageNum + delta;
+      if (target >= 1 && target <= pdfDoc.numPages) {
+        pageNum = target;
+        updatePageIndicator(pageNum, pdfDoc.numPages);
+        queueRenderPage(pageNum);
+        // Scroll to top on page change
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+
+    function showError(msg) {
+      loading.style.display = 'none';
+      errorMsg.style.display = 'block';
+      errorMsg.textContent = msg;
+    }
+
+    if (!pdfUrl) {
+      showError('No PDF URL parameter provided.');
+    } else {
+      pdfjsLib.getDocument({
+        url: pdfUrl,
+        cMapUrl: undefined,
+        cMapPacked: false,
+      }).promise.then(function(doc) {
+        pdfDoc = doc;
+        updatePageIndicator(1, doc.numPages);
+        renderPage(pageNum);
+      }).catch(function(err) {
+        showError('Failed to load PDF document: ' + err.message);
+      });
+    }
+
+    // Touch swipe left/right navigation for mobile convenience
+    let touchStartX = 0;
+    let touchEndX = 0;
+    document.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 1) {
+        touchStartX = e.touches[0].screenX;
+      }
+    }, { passive: true });
+
+    document.addEventListener('touchend', function(e) {
+      if (e.changedTouches.length === 1) {
+        touchEndX = e.changedTouches[0].screenX;
+        const diff = touchStartX - touchEndX;
+        if (Math.abs(diff) > 75) {
+          if (diff > 0) {
+            // Swiped left -> next page
+            changePage(1);
+          } else {
+            // Swiped right -> prev page
+            changePage(-1);
+          }
+        }
+      }
+    }, { passive: true });
+  </script>
+</body>
+</html>

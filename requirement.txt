@@ -1,0 +1,41 @@
+# ==============================================================
+# String Art Studio Backend - Production Deployment Dependencies
+# ==============================================================
+
+# Web Framework & ASGI Server
+fastapi==0.134.0
+uvicorn==0.41.0
+
+# Data Validation & Configuration
+pydantic==2.12.5
+pydantic-settings==2.14.1
+email-validator==2.3.0
+python-multipart==0.0.22
+python-dotenv==1.2.3
+
+# Database & ORM (PostgreSQL)
+SQLAlchemy==2.0.30
+psycopg2-binary==2.9.9
+
+# Authentication & Password Hashing
+bcrypt==5.0.0
+PyJWT==2.10.1
+
+# Payment Integration
+razorpay==2.0.1
+
+# Computer Vision, AI Background Removal & String Art Generation
+rembg==2.0.85
+onnxruntime==1.26.0
+opencv-python==4.11.0.86
+Pillow==12.3.0
+numpy==2.4.6
+
+# Weaving Instruction PDF Generation
+reportlab==5.0.1
+
+# Cloud Storage (S3 / R2 / Supabase) & Networking
+boto3==1.42.59
+botocore==1.42.59
+requests==2.34.2
+httpx==0.28.1
