@@ -13,11 +13,24 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Auto-initialize database tables from database.sql on startup
+    try:
+        from init_db import init_db
+        init_db()
+    except Exception as e:
+        print(f"Warning: Database initialization error on startup: {e}")
+    yield
+
 app = FastAPI(
     title=settings.APP_NAME,
     debug=settings.DEBUG,
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 from services.storage import storage
