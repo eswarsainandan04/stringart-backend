@@ -27,7 +27,7 @@ razorpay==2.0.1
 # Computer Vision, AI Background Removal & String Art Generation
 rembg==2.0.85
 onnxruntime==1.26.0
-opencv-python==4.11.0.86
+opencv-python-headless==4.11.0.86
 Pillow==12.3.0
 numpy==2.4.6
 
