@@ -1,8 +1,43 @@
 import smtplib
+import socket
+import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import secrets
 from config import Settings
+
+
+def create_smtp_connection(smtp_server: str, smtp_port: int, timeout: int = 15) -> smtplib.SMTP:
+    """
+    Creates an SMTP connection strictly forced to IPv4 to prevent '[Errno 101] Network is unreachable'
+    on cloud container platforms (like Render free tier) that do not support outbound IPv6 routing.
+    """
+    ipv4_ips = []
+    try:
+        infos = socket.getaddrinfo(smtp_server, smtp_port, socket.AF_INET, socket.SOCK_STREAM)
+        ipv4_ips = [info[4][0] for info in infos if info[4] and info[4][0]]
+    except Exception as e:
+        print(f"Warning resolving IPv4 for {smtp_server}: {e}")
+
+    targets = ipv4_ips if ipv4_ips else [smtp_server]
+    last_err = None
+
+    for target in targets:
+        try:
+            server = smtplib.SMTP(target, smtp_port, timeout=timeout)
+            server._host = smtp_server
+            server.ehlo()
+            context = ssl.create_default_context()
+            server.starttls(context=context)
+            server.ehlo()
+            return server
+        except Exception as e:
+            last_err = e
+            continue
+
+    if last_err:
+        raise last_err
+    raise ConnectionError(f"Could not connect to {smtp_server}:{smtp_port}")
 
 
 def generate_otp() -> str:
@@ -157,9 +192,14 @@ def send_otp_email(to_email: str, otp: str, purpose: str = "verification") -> bo
     msg.attach(text_part)
     msg.attach(html_part)
 
-    with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
-        server.starttls()
+    server = create_smtp_connection(smtp_server, smtp_port, timeout=15)
+    try:
         server.login(sender_email, sender_password)
         server.sendmail(sender_email, to_email, msg.as_string())
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            pass
 
     return True
